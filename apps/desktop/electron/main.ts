@@ -1640,6 +1640,13 @@ let remoteReauthFailure = null
 // Active first-launch install, so the renderer's Cancel button (and app quit)
 // can abort the in-flight install.sh/ps1 instead of leaving it running.
 let bootstrapAbortController = null
+interface ActiveBootstrapOptions {
+  profile?: 'lean' | 'standard' | 'full'
+  useFastMirror?: boolean
+  customMirrorUrl?: string
+  skipBrowserUse?: boolean
+}
+let activeBootstrapOptions: ActiveBootstrapOptions | null = null
 // Explicit "the user asked for a repair" flag. Repair used to signal intent by
 // deleting the bootstrap marker, which stranded healthy installs whose only
 // problem was a transient backend error (#72166). Intent now lives here, so
@@ -5210,6 +5217,7 @@ async function ensureRuntime(backend) {
       sourceRepoRoot: SOURCE_REPO_ROOT,
       hermesHome: HERMES_HOME,
       logRoot: path.join(HERMES_HOME, 'logs'),
+      bootstrapOptions: activeBootstrapOptions,
       abortSignal: bootstrapAbortController.signal,
       onEvent: ev => {
         // Tee every bootstrap event to (a) the desktop log for forensics
@@ -15266,16 +15274,15 @@ ipcMain.handle('hermes:bootstrap:repair', async () => {
 
   return { ok: true }
 })
-ipcMain.handle('hermes:bootstrap:continue-local', async () => {
-  rememberLog('[bootstrap] local install selected by renderer; continuing first-launch bootstrap')
+ipcMain.handle('hermes:bootstrap:continue-local', async (_event, rawOptions?: unknown) => {
+  const options = (rawOptions && typeof rawOptions === 'object') ? (rawOptions as ActiveBootstrapOptions) : null
+  rememberLog(`[bootstrap] local install selected by renderer; options=${JSON.stringify(options || {})}`)
+  activeBootstrapOptions = options
   continueFirstRunLocalBootstrap()
 
   return { ok: true }
 })
 ipcMain.handle('hermes:bootstrap:cancel', async () => {
-  // Renderer's Cancel button during first-launch install. Abort the running
-  // install script (SIGTERM via the runner's abortSignal). runBootstrap
-  // resolves with { cancelled: true }, which surfaces the recovery overlay.
   if (bootstrapAbortController) {
     try {
       bootstrapAbortController.abort()

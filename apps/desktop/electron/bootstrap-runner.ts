@@ -456,8 +456,21 @@ function resolveWindowsPowerShell() {
   return 'powershell.exe'
 }
 
-function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, hermesHome }: any = {}) {
-  return new Promise<any>((resolve, reject) => {
+export interface BootstrapRunnerOptions {
+  profile?: 'lean' | 'standard' | 'full'
+  useFastMirror?: boolean
+  customMirrorUrl?: string
+  skipBrowserUse?: boolean
+}
+
+function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, hermesHome, bootstrapOptions }: {
+  emit?: (ev: unknown) => void
+  stageName?: string
+  abortSignal?: AbortSignal | null
+  hermesHome?: string
+  bootstrapOptions?: BootstrapRunnerOptions | null
+} = {}) {
+  return new Promise<{ code: number; signal: string | null; stdout: string; stderr: string; killed: boolean }>((resolve, reject) => {
     const ps = process.platform === 'win32' ? resolveWindowsPowerShell() : 'pwsh'
     const fullArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...args]
 
@@ -468,9 +481,11 @@ function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, herme
         stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
-          // Pass HERMES_HOME through so install.ps1 respects the caller's
-          // choice rather than re-computing the default.
-          HERMES_HOME: hermesHome || process.env.HERMES_HOME || ''
+          HERMES_HOME: hermesHome || process.env.HERMES_HOME || '',
+          ...(bootstrapOptions?.profile ? { HERMES_INSTALL_PROFILE: bootstrapOptions.profile } : {}),
+          ...(bootstrapOptions?.useFastMirror ? { HERMES_FAST_MIRROR: '1' } : {}),
+          ...(bootstrapOptions?.customMirrorUrl ? { HERMES_MIRROR_URL: bootstrapOptions.customMirrorUrl } : {}),
+          ...(bootstrapOptions?.skipBrowserUse ? { HERMES_SKIP_BROWSER_USE: '1' } : {})
         }
       })
     )
@@ -560,16 +575,25 @@ function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, herme
   })
 }
 
-function spawnBash(scriptPath, args, { emit, stageName, abortSignal, hermesHome }: any = {}) {
-  return new Promise<any>((resolve, reject) => {
+function spawnBash(scriptPath, args, { emit, stageName, abortSignal, hermesHome, bootstrapOptions }: {
+  emit?: (ev: unknown) => void
+  stageName?: string
+  abortSignal?: AbortSignal | null
+  hermesHome?: string
+  bootstrapOptions?: BootstrapRunnerOptions | null
+} = {}) {
+  return new Promise<{ code: number; signal: string | null; stdout: string; stderr: string; killed: boolean }>((resolve, reject) => {
     const child = spawn('bash', [scriptPath, ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        HERMES_HOME: hermesHome || process.env.HERMES_HOME || ''
+        HERMES_HOME: hermesHome || process.env.HERMES_HOME || '',
+        ...(bootstrapOptions?.profile ? { HERMES_INSTALL_PROFILE: bootstrapOptions.profile } : {}),
+        ...(bootstrapOptions?.useFastMirror ? { HERMES_FAST_MIRROR: '1' } : {}),
+        ...(bootstrapOptions?.customMirrorUrl ? { HERMES_MIRROR_URL: bootstrapOptions.customMirrorUrl } : {}),
+        ...(bootstrapOptions?.skipBrowserUse ? { HERMES_SKIP_BROWSER_USE: '1' } : {})
       }
     })
-
     let stdout = ''
     let stderr = ''
     let killed = false
@@ -761,7 +785,19 @@ async function runStage({
   activeRoot,
   abortSignal,
   installStamp,
-  pinCommit
+  pinCommit,
+  bootstrapOptions
+}: {
+  scriptPath: string
+  installerKind: string
+  stage: { name: string }
+  emit: (ev: unknown) => void
+  hermesHome: string
+  activeRoot: string
+  abortSignal: AbortSignal | null
+  installStamp: unknown
+  pinCommit: boolean
+  bootstrapOptions?: BootstrapRunnerOptions | null
 }) {
   const startedAt = Date.now()
   emit({ type: 'stage', name: stage.name, state: 'running' })
@@ -774,15 +810,30 @@ async function runStage({
         stage.name,
         '--non-interactive',
         '--json',
-        ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit })
+        ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit }),
+        ...(bootstrapOptions?.profile ? ['--profile', bootstrapOptions.profile] : []),
+        ...(bootstrapOptions?.useFastMirror ? ['--fast-mirror'] : []),
+        ...(bootstrapOptions?.customMirrorUrl ? ['--mirror-url', bootstrapOptions.customMirrorUrl] : []),
+        ...(bootstrapOptions?.skipBrowserUse ? ['--skip-browser-use'] : [])
       ]
-    : ['-Stage', stage.name, '-NonInteractive', '-Json', ...buildPinArgs(installStamp, { pinCommit })]
+    : [
+        '-Stage',
+        stage.name,
+        '-NonInteractive',
+        '-Json',
+        ...buildPinArgs(installStamp, { pinCommit }),
+        ...(bootstrapOptions?.profile ? ['-Profile', bootstrapOptions.profile] : []),
+        ...(bootstrapOptions?.useFastMirror ? ['-FastMirror'] : []),
+        ...(bootstrapOptions?.customMirrorUrl ? ['-MirrorUrl', bootstrapOptions.customMirrorUrl] : []),
+        ...(bootstrapOptions?.skipBrowserUse ? ['-SkipBrowserUse'] : [])
+      ]
 
   const result = await (isPosix ? spawnBash : spawnPowerShell)(scriptPath, args, {
     emit,
     stageName: stage.name,
     abortSignal,
-    hermesHome
+    hermesHome,
+    bootstrapOptions
   })
 
   const durationMs = Date.now() - startedAt
@@ -865,9 +916,9 @@ async function runBootstrap(opts) {
     logRoot,
     onEvent,
     abortSignal,
-    writeMarker // callback to write the bootstrap-complete marker; main.ts provides
+    writeMarker,
+    bootstrapOptions
   } = opts
-
   // Bail before spawning anything if the user already cancelled — otherwise an
   // already-aborted signal would still fetch the manifest (a spawn) before the
   // in-loop abort check fires.
@@ -967,7 +1018,8 @@ async function runBootstrap(opts) {
         activeRoot,
         abortSignal,
         installStamp,
-        pinCommit
+        pinCommit,
+        bootstrapOptions
       })
 
       if (ev.state === 'failed') {

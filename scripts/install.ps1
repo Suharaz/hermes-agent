@@ -33,6 +33,20 @@ param(
     [string]$HermesHome = $(if ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:LOCALAPPDATA\hermes" }),
     [string]$InstallDir = $(if ($env:HERMES_HOME) { "$env:HERMES_HOME\hermes-agent" } else { "$env:LOCALAPPDATA\hermes\hermes-agent" }),
 
+    # --- Installation Profile & Acceleration Options ---
+    # Profile: lean (core + web + mcp), standard (+ youtube + acp + pty), full (all extras).
+    # Can also be passed via HERMES_INSTALL_PROFILE env var.
+    [ValidateSet("lean", "standard", "full")]
+    [string]$Profile = $(if ($env:HERMES_INSTALL_PROFILE) { $env:HERMES_INSTALL_PROFILE } else { "standard" }),
+
+    # Fast PyPI mirror option (e.g. for Asia/Pacific or throttled connections).
+    # Can also be set via HERMES_FAST_MIRROR="1" / HERMES_MIRROR_URL="https://...".
+    [switch]$FastMirror = [bool]$(if ($env:HERMES_FAST_MIRROR) { $env:HERMES_FAST_MIRROR -eq "1" -or $env:HERMES_FAST_MIRROR -eq "true" } else { $false }),
+    [string]$MirrorUrl = $(if ($env:HERMES_MIRROR_URL) { $env:HERMES_MIRROR_URL } else { "https://mirrors.aliyun.com/pypi/simple" }),
+
+    # Skip optional Browser Use CLI installation
+    [switch]$SkipBrowserUse = [bool]$(if ($env:HERMES_SKIP_BROWSER_USE) { $env:HERMES_SKIP_BROWSER_USE -eq "1" -or $env:HERMES_SKIP_BROWSER_USE -eq "true" } else { $false }),
+
     # --- Stage protocol (additive; default invocation behaves as before) ----
     # See the "Stage protocol" section near the bottom of the file for the
     # full contract.  Intended for programmatic drivers (the desktop GUI's
@@ -2902,23 +2916,18 @@ function Install-Dependencies {
     # tree is deleted only after the imports prove the replacement usable.
     try {
     if (Test-Path "uv.lock") {
-        Write-Info "Trying tier: hash-verified (uv.lock) ..."
-        # Critical flag choice: `--extra all`, NOT `--all-extras`.
-        #   --all-extras = every [project.optional-dependencies] key,
-        #                  bypassing the curated [all] extra. On Windows
-        #                  that means [matrix] -> python-olm (no wheel,
-        #                  needs `make` to build from sdist) and the
-        #                  install fails.
-        #   --extra all  = just the [all] extra's contents (curated).
-        #
-        # UV_PROJECT_ENVIRONMENT pins the sync target to our venv\.
-        # Without it, modern uv (>=0.5) ignores VIRTUAL_ENV for `sync`
-        # and creates a sibling .venv\ inside the repo -- leaving venv\
-        # empty and producing the broken state where `hermes.exe` exists
-        # in the wrong directory and imports fail with ModuleNotFoundError.
-        # (Mirrors the same flag in scripts/install.sh::install_deps.)
+        $syncExtras = switch ($Profile) {
+            "lean"     { @("--extra", "web", "--extra", "mcp") }
+            "standard" { @("--extra", "web", "--extra", "mcp", "--extra", "youtube", "--extra", "acp") }
+            default    { @("--extra", "all") }
+        }
         $env:UV_PROJECT_ENVIRONMENT = "$InstallDir\venv"
-        Invoke-NativeWithRelaxedErrorAction { & $UvCmd sync --extra all --locked }
+        if ($FastMirror -and $MirrorUrl) {
+            $env:UV_DEFAULT_INDEX = $MirrorUrl
+            Write-Info "Using fast PyPI mirror: $MirrorUrl"
+        }
+        Write-Info "Syncing packages for profile '$Profile' ($($syncExtras -join ' '))..."
+        Invoke-NativeWithRelaxedErrorAction { & $UvCmd sync @syncExtras --locked }
         if ($LASTEXITCODE -eq 0) {
             Write-Success "Main package installed (hash-verified via uv.lock)"
             $script:InstalledTier = "hash-verified (uv.lock)"
@@ -3745,6 +3754,10 @@ function Install-BrowserUseCli {
         Write-Success "Browser Use CLI already installed"
         return
     }
+    if ($Profile -eq "lean" -or $SkipBrowserUse) {
+        Write-Info "Skipping Browser Use CLI for lean profile (-Profile $Profile / -SkipBrowserUse). Install on-demand later via 'hermes tools'."
+        return
+    }
 
     Write-Info "Installing Browser Use CLI (default browser backend)..."
     $prevEAP = $ErrorActionPreference
@@ -3753,8 +3766,10 @@ function Install-BrowserUseCli {
         # UV_TOOL_BIN_DIR keeps the binary inside Hermes' managed bin dir,
         # where the browser tool resolves it -- no reliance on the user PATH.
         $env:UV_TOOL_BIN_DIR = $managedBin
-        $env:UV_NO_CONFIG = "1"
-        & $script:UvCmd tool install browser-use 2>&1 | Out-Null
+        if ($FastMirror -and $MirrorUrl) {
+            $env:UV_DEFAULT_INDEX = $MirrorUrl
+        }
+        & $script:UvCmd tool install browser-use
         if ($LASTEXITCODE -eq 0) {
             Write-Success "Browser Use CLI installed"
         } else {

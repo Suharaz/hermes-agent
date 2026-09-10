@@ -77,6 +77,11 @@ INSTALL_COMMIT=""
 FORCE_COMMIT=false
 ENSURE_DEPS=""
 
+PROFILE="${HERMES_INSTALL_PROFILE:-standard}"
+FAST_MIRROR="${HERMES_FAST_MIRROR:-false}"
+MIRROR_URL="${HERMES_MIRROR_URL:-https://mirrors.aliyun.com/pypi/simple}"
+SKIP_BROWSER_USE="${HERMES_SKIP_BROWSER_USE:-false}"
+
 MANIFEST_MODE=false
 STAGE_NAME=""
 JSON_OUTPUT=false
@@ -159,6 +164,23 @@ while [[ $# -gt 0 ]]; do
         --ensure)
             ENSURE_DEPS="$2"
             shift 2
+            ;;
+        --profile)
+            PROFILE="$2"
+            shift 2
+            ;;
+        --fast-mirror)
+            FAST_MIRROR=true
+            shift
+            ;;
+        --mirror|--mirror-url)
+            MIRROR_URL="$2"
+            FAST_MIRROR=true
+            shift 2
+            ;;
+        --skip-browser-use)
+            SKIP_BROWSER_USE=true
+            shift
             ;;
 
         -h|--help)
@@ -1769,7 +1791,23 @@ run_locked_uv_sync() {
         unset UV_NO_CONFIG UV_CONFIG_FILE
         export XDG_CONFIG_HOME="$isolated_uv_config"
         export XDG_CONFIG_DIRS="$isolated_uv_config"
-        UV_PROJECT_ENVIRONMENT="$project_env" $UV_CMD sync --extra all --locked
+        local sync_extras=()
+        case "$PROFILE" in
+            lean)
+                sync_extras=(--extra web --extra mcp)
+                ;;
+            standard)
+                sync_extras=(--extra web --extra mcp --extra youtube --extra acp)
+                ;;
+            *)
+                sync_extras=(--extra all)
+                ;;
+        esac
+        if [ "$FAST_MIRROR" = true ] || [ "$FAST_MIRROR" = "1" ]; then
+            export UV_DEFAULT_INDEX="$MIRROR_URL"
+            log_info "Using fast PyPI mirror: $MIRROR_URL"
+        fi
+        UV_PROJECT_ENVIRONMENT="$project_env" $UV_CMD sync "${sync_extras[@]}" --locked
     )
     sync_rc=$?
     rmdir "$isolated_uv_config" 2>/dev/null || true
@@ -2835,12 +2873,21 @@ install_browser_use_cli() {
         log_success "Browser Use CLI already installed"
         return 0
     fi
+    if [ "$PROFILE" = "lean" ] || [ "$SKIP_BROWSER_USE" = true ] || [ "$SKIP_BROWSER_USE" = "1" ]; then
+        log_info "Skipping Browser Use CLI for lean profile (--profile $PROFILE / --skip-browser-use). Install on-demand later via 'hermes tools'."
+        return 0
+    fi
+
 
     log_info "Installing Browser Use CLI (default browser backend)..."
     # UV_TOOL_BIN_DIR keeps the binary inside Hermes' managed bin dir, where
     # the browser tool resolves it — no reliance on the user's PATH.
-    if run_with_timeout 600 env UV_NO_CONFIG=1 UV_TOOL_BIN_DIR="$HERMES_HOME/bin" \
-        "$UV_CMD" tool install browser-use >/dev/null 2>&1; then
+    local extra_env=()
+    if [ "$FAST_MIRROR" = true ] || [ "$FAST_MIRROR" = "1" ]; then
+        extra_env+=(UV_DEFAULT_INDEX="$MIRROR_URL")
+    fi
+    if run_with_timeout 600 env UV_NO_CONFIG=1 "${extra_env[@]}" UV_TOOL_BIN_DIR="$HERMES_HOME/bin" \
+        "$UV_CMD" tool install browser-use; then
         log_success "Browser Use CLI installed"
     else
         log_warn "Browser Use CLI install failed — browser automation falls back to built-in tools."

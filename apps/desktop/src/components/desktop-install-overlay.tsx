@@ -15,7 +15,7 @@ import type {
   DesktopBootstrapState
 } from '@/global'
 import { useI18n } from '@/i18n'
-import { AlertCircle, ChevronDown, ChevronRight, Globe, iconSize, Loader2, Monitor } from '@/lib/icons'
+import { AlertCircle, Check, ChevronDown, ChevronRight, Globe, iconSize, Loader2, Monitor, Zap } from '@/lib/icons'
 import { capitalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 
@@ -45,6 +45,30 @@ import { FirstRunRemoteForm } from './first-run-remote-form'
  * those stages cover (API key, model, persona, gateway autostart) is handled
  * by the existing DesktopOnboardingOverlay, NOT by the install overlay.
  */
+const PROFILES = [
+  {
+    id: 'lean' as const,
+    title: 'Lean (Fast)',
+    tag: '~50 MB · ~1 min',
+    desc: 'Core AI Agent, Web Dashboard & MCP tools. Extra skills install on-demand.',
+    badge: 'Recommended'
+  },
+  {
+    id: 'standard' as const,
+    title: 'Standard',
+    tag: '~120 MB · ~3 min',
+    desc: 'Lean + Terminal automations and YouTube tools.',
+    badge: 'Balanced'
+  },
+  {
+    id: 'full' as const,
+    title: 'Full (All Extras)',
+    tag: '~350 MB · ~10+ min',
+    desc: 'Includes full Google Workspace SDK & all messaging extras.',
+    badge: 'Complete'
+  }
+]
+
 
 interface DesktopInstallOverlayProps {
   /** When false, the overlay never renders -- useful for dev when we want
@@ -278,6 +302,10 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
   const [cancelling, setCancelling] = useState(false)
   const [remoteOpen, setRemoteOpen] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const [selectedProfile, setSelectedProfile] = useState<'lean' | 'standard' | 'full'>('lean')
+  const [useFastMirror, setUseFastMirror] = useState(true)
+  const [includeBrowserUse, setIncludeBrowserUse] = useState(false)
+  const [activeTab, setActiveTab] = useState<'local' | 'remote'>('local')
   const logEndRef = useRef<HTMLDivElement | null>(null)
 
   // Tick once a second while a bootstrap is in flight so running steps show a
@@ -408,49 +436,147 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          {/* Mode Switcher Tabs */}
+          <div className="mt-6 flex border-b border-(--ui-stroke-tertiary)">
             <button
-              className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) p-4 text-left transition hover:bg-(--chrome-action-hover)"
+              type="button"
+              className={cn(
+                'flex items-center gap-2 pb-2.5 px-3 text-sm font-medium transition border-b-2 -mb-px',
+                activeTab === 'local'
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              )}
+              onClick={() => setActiveTab('local')}
+            >
+              <Monitor className="size-4" />
+              <span>{copy.installLocalTitle}</span>
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'flex items-center gap-2 pb-2.5 px-3 text-sm font-medium transition border-b-2 -mb-px',
+                activeTab === 'remote'
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              )}
               onClick={() => setRemoteOpen(true)}
-              type="button"
             >
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Globe className="size-4 text-muted-foreground" />
-                <span>{copy.connectExistingTitle}</span>
-              </div>
-              <p className="mt-2 text-sm leading-5 text-muted-foreground">{copy.connectExistingDesc}</p>
+              <Globe className="size-4" />
+              <span>{copy.connectExistingTitle}</span>
             </button>
+          </div>
 
-            <button
-              className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) p-4 text-left transition hover:bg-(--chrome-action-hover) disabled:cursor-wait disabled:opacity-60"
-              disabled={localStarting}
-              onClick={async () => {
-                setLocalStart({ root: activeRoot, starting: true, error: null })
+          {/* Local Installation Configuration */}
+          <div className="mt-5 space-y-4">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Installation Profile
+              </label>
+              <div className="mt-2 grid gap-2.5 sm:grid-cols-3">
+                {PROFILES.map(p => {
+                  const isSelected = selectedProfile === p.id
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setSelectedProfile(p.id)}
+                      className={cn(
+                        'flex flex-col text-left rounded-lg p-3.5 border transition cursor-pointer',
+                        isSelected
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                          : 'border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) hover:border-(--ui-stroke-secondary)'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-sm font-medium text-foreground">{p.title}</span>
+                        {isSelected && <Check className="size-4 text-primary shrink-0" />}
+                      </div>
+                      <span className="mt-1 text-xs font-mono font-medium text-primary/80">{p.tag}</span>
+                      <p className="mt-1.5 text-xs text-muted-foreground leading-normal">{p.desc}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
 
-                try {
-                  const desktop = window.hermesDesktop
+            {/* Acceleration & Options */}
+            <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) p-4 space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={useFastMirror}
+                  onChange={e => setUseFastMirror(e.target.checked)}
+                  className="mt-0.5 rounded border-(--ui-stroke-secondary) accent-primary"
+                />
+                <div className="text-xs leading-normal">
+                  <div className="flex items-center gap-1.5 font-medium text-foreground">
+                    <Zap className="size-3.5 text-amber-500 fill-amber-500" />
+                    <span>Fast PyPI Mirror (Asia / Pacific Acceleration)</span>
+                    <span className="rounded bg-amber-500/10 text-amber-600 px-1.5 py-0.2 text-[10px] font-semibold">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-muted-foreground">
+                    Bypasses international CDN throttling for up to 30x faster package downloads.
+                  </p>
+                </div>
+              </label>
 
-                  if (!desktop || typeof desktop.continueBootstrapLocal !== 'function') {
-                    throw new Error(copy.localStartUnavailable)
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeBrowserUse}
+                  onChange={e => setIncludeBrowserUse(e.target.checked)}
+                  className="mt-0.5 rounded border-(--ui-stroke-secondary) accent-primary"
+                />
+                <div className="text-xs leading-normal">
+                  <span className="font-medium text-foreground">Install Browser Automation CLI (browser-use)</span>
+                  <p className="mt-0.5 text-muted-foreground">
+                    Adds headless browser automation tools. Optional; can be installed later via `hermes tools`.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Primary Action Button */}
+            <div className="pt-2">
+              <Button
+                className="w-full h-11 text-sm font-medium"
+                disabled={localStarting}
+                onClick={async () => {
+                  setLocalStart({ root: activeRoot, starting: true, error: null })
+
+                  try {
+                    const desktop = window.hermesDesktop
+
+                    if (!desktop || typeof desktop.continueBootstrapLocal !== 'function') {
+                      throw new Error(copy.localStartUnavailable)
+                    }
+
+                    await desktop.continueBootstrapLocal({
+                      profile: selectedProfile,
+                      useFastMirror,
+                      skipBrowserUse: !includeBrowserUse
+                    })
+                  } catch (err) {
+                    setLocalStart({ root: activeRoot, starting: false, error: errorMessage(err) })
                   }
-
-                  await desktop.continueBootstrapLocal()
-                } catch (err) {
-                  setLocalStart({ root: activeRoot, starting: false, error: errorMessage(err) })
-                }
-              }}
-              type="button"
-            >
-              <div className="flex items-center gap-2 text-sm font-medium">
+                }}
+                type="button"
+              >
                 {localStarting ? (
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    <span>Starting installation...</span>
+                  </>
                 ) : (
-                  <Monitor className="size-4 text-muted-foreground" />
+                  <>
+                    <Monitor className="mr-2 size-4" />
+                    <span>{copy.installLocalTitle}</span>
+                  </>
                 )}
-                <span>{copy.installLocalTitle}</span>
-              </div>
-              <p className="mt-2 text-sm leading-5 text-muted-foreground">{copy.installLocalDesc}</p>
-            </button>
+              </Button>
+            </div>
           </div>
 
           {localStartError ? (
@@ -562,6 +688,18 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
 
         {/* Scrollable middle: progress, stages, error block, log */}
         <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-2">
+          {/* Active configuration indicator */}
+          <div className="mb-3 flex items-center gap-2 text-xs">
+            <span className="rounded bg-(--ui-bg-quaternary) border border-(--ui-stroke-tertiary) px-2 py-0.5 font-medium uppercase tracking-wider text-[10px] text-muted-foreground">
+              Profile: {selectedProfile}
+            </span>
+            {useFastMirror && (
+              <span className="flex items-center gap-1 rounded bg-amber-500/10 border border-amber-500/20 text-amber-600 px-2 py-0.5 font-medium text-[10px]">
+                <Zap className="size-3 text-amber-500 fill-amber-500" />
+                Fast Mirror
+              </span>
+            )}
+          </div>
           {totalCount > 0 && (
             <div className="mb-4">
               <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">

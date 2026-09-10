@@ -514,7 +514,7 @@ declare global {
       onBatteryChanged?: (callback: (onBattery: boolean) => void) => () => void
       onBootProgress: (callback: (payload: DesktopBootProgress) => void) => () => void
       getBootstrapState: () => Promise<DesktopBootstrapState>
-      continueBootstrapLocal: () => Promise<{ ok: boolean }>
+      continueBootstrapLocal: (options?: DesktopBootstrapOptions) => Promise<{ ok: boolean }>
       recycleBackend?: (profile?: null | string) => Promise<{ ok: boolean }>
       resetBootstrap: () => Promise<{ ok: boolean }>
       repairBootstrap: () => Promise<{ ok: boolean }>
@@ -1176,6 +1176,13 @@ export interface DesktopBootstrapUnsupportedPlatform {
 export interface DesktopBootstrapSetupChoice {
   platform: string
   activeRoot: string
+}
+
+export interface DesktopBootstrapOptions {
+  profile?: 'lean' | 'standard' | 'full'
+  useFastMirror?: boolean
+  customMirrorUrl?: string
+  skipBrowserUse?: boolean
 }
 
 export interface DesktopBootstrapState {

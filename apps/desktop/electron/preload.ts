@@ -481,7 +481,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   // current snapshot via getBootstrapState() to recover after a devtools
   // reload mid-bootstrap.
   getBootstrapState: () => ipcRenderer.invoke('hermes:bootstrap:get'),
-  continueBootstrapLocal: () => ipcRenderer.invoke('hermes:bootstrap:continue-local'),
+  continueBootstrapLocal: options => ipcRenderer.invoke('hermes:bootstrap:continue-local', options),
   recycleBackend: profile => ipcRenderer.invoke('hermes:backend:recycle', profile),
   resetBootstrap: () => ipcRenderer.invoke('hermes:bootstrap:reset'),
   repairBootstrap: () => ipcRenderer.invoke('hermes:bootstrap:repair'),
