@@ -4025,6 +4025,10 @@ function Install-DesktopVoiceDeps {
     # multi-minute onnxruntime pip install that froze the UI and blew RPC
     # timeouts. Best-effort -- lazy install remains the fallback for anything
     # this step fails to fetch.
+    if ($Profile -eq "lean") {
+        Write-Info "Skipping eager voice/wake dependencies for lean profile (they will lazy-install on demand if voice is used)"
+        return
+    }
     if (-not $script:UvCmd) { Resolve-UvCmd }
     if (-not $script:UvCmd) {
         Write-Warn "uv unavailable -- voice/wake deps will lazy-install at first use instead"
