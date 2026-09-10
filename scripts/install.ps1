@@ -38,6 +38,10 @@ param(
     # Can also be passed via HERMES_INSTALL_PROFILE env var.
     [ValidateSet("lean", "standard", "full")]
     [string]$Profile = $(if ($env:HERMES_INSTALL_PROFILE) { $env:HERMES_INSTALL_PROFILE } else { "standard" }),
+    # Comma-separated list of extras to install (e.g. "web,mcp,youtube").
+    # When specified, overrides -Profile. Can also be set via HERMES_INSTALL_EXTRAS env var.
+    [string]$Extras = $(if ($env:HERMES_INSTALL_EXTRAS) { $env:HERMES_INSTALL_EXTRAS } else { "" }),
+
 
     # Fast PyPI mirror option (e.g. for Asia/Pacific or throttled connections).
     # Can also be set via HERMES_FAST_MIRROR="1" / HERMES_MIRROR_URL="https://...".
@@ -2916,15 +2920,19 @@ function Install-Dependencies {
     # tree is deleted only after the imports prove the replacement usable.
     try {
     if (Test-Path "uv.lock") {
-        $syncExtras = switch ($Profile) {
-            "lean"     { @("--extra", "web", "--extra", "mcp") }
-            "standard" { @("--extra", "web", "--extra", "mcp", "--extra", "youtube", "--extra", "acp") }
-            default    { @("--extra", "all") }
-        }
-        $env:UV_PROJECT_ENVIRONMENT = "$InstallDir\venv"
-        if ($FastMirror -and $MirrorUrl) {
-            $env:UV_DEFAULT_INDEX = $MirrorUrl
-            Write-Info "Using fast PyPI mirror: $MirrorUrl"
+        $syncExtras = if ($Extras) {
+            $parsedExtras = $Extras -split "[, ]+" | Where-Object { $_ }
+            $acc = @()
+            foreach ($ex in $parsedExtras) {
+                $acc += @("--extra", $ex)
+            }
+            $acc
+        } else {
+            switch ($Profile) {
+                "lean"     { @("--extra", "web", "--extra", "mcp") }
+                "standard" { @("--extra", "web", "--extra", "mcp", "--extra", "youtube", "--extra", "acp") }
+                default    { @("--extra", "all") }
+            }
         }
         Write-Info "Syncing packages for profile '$Profile' ($($syncExtras -join ' '))..."
         Invoke-NativeWithRelaxedErrorAction { & $UvCmd sync @syncExtras --locked }

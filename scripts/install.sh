@@ -81,6 +81,7 @@ PROFILE="${HERMES_INSTALL_PROFILE:-standard}"
 FAST_MIRROR="${HERMES_FAST_MIRROR:-false}"
 MIRROR_URL="${HERMES_MIRROR_URL:-https://mirrors.aliyun.com/pypi/simple}"
 SKIP_BROWSER_USE="${HERMES_SKIP_BROWSER_USE:-false}"
+EXTRAS="${HERMES_INSTALL_EXTRAS:-}"
 
 MANIFEST_MODE=false
 STAGE_NAME=""
@@ -181,6 +182,10 @@ while [[ $# -gt 0 ]]; do
         --skip-browser-use)
             SKIP_BROWSER_USE=true
             shift
+            ;;
+        --extras)
+            EXTRAS="$2"
+            shift 2
             ;;
 
         -h|--help)
@@ -1792,17 +1797,25 @@ run_locked_uv_sync() {
         export XDG_CONFIG_HOME="$isolated_uv_config"
         export XDG_CONFIG_DIRS="$isolated_uv_config"
         local sync_extras=()
-        case "$PROFILE" in
-            lean)
-                sync_extras=(--extra web --extra mcp)
-                ;;
-            standard)
-                sync_extras=(--extra web --extra mcp --extra youtube --extra acp)
-                ;;
-            *)
-                sync_extras=(--extra all)
-                ;;
-        esac
+        if [ -n "$EXTRAS" ]; then
+            IFS=',' read -ra ADDR <<< "$EXTRAS"
+            for ex in "${ADDR[@]}"; do
+                ex="$(echo "$ex" | tr -d ' ')"
+                [ -n "$ex" ] && sync_extras+=(--extra "$ex")
+            done
+        else
+            case "$PROFILE" in
+                lean)
+                    sync_extras=(--extra web --extra mcp)
+                    ;;
+                standard)
+                    sync_extras=(--extra web --extra mcp --extra youtube --extra acp)
+                    ;;
+                *)
+                    sync_extras=(--extra all)
+                    ;;
+            esac
+        fi
         if [ "$FAST_MIRROR" = true ] || [ "$FAST_MIRROR" = "1" ]; then
             export UV_DEFAULT_INDEX="$MIRROR_URL"
             log_info "Using fast PyPI mirror: $MIRROR_URL"

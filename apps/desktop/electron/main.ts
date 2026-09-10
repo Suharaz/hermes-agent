@@ -1641,7 +1641,8 @@ let remoteReauthFailure = null
 // can abort the in-flight install.sh/ps1 instead of leaving it running.
 let bootstrapAbortController = null
 interface ActiveBootstrapOptions {
-  profile?: 'lean' | 'standard' | 'full'
+  profile?: 'lean' | 'standard' | 'full' | 'custom'
+  extras?: string
   useFastMirror?: boolean
   customMirrorUrl?: string
   skipBrowserUse?: boolean

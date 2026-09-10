@@ -457,7 +457,8 @@ function resolveWindowsPowerShell() {
 }
 
 export interface BootstrapRunnerOptions {
-  profile?: 'lean' | 'standard' | 'full'
+  profile?: 'lean' | 'standard' | 'full' | 'custom'
+  extras?: string
   useFastMirror?: boolean
   customMirrorUrl?: string
   skipBrowserUse?: boolean
@@ -483,6 +484,7 @@ function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, herme
           ...process.env,
           HERMES_HOME: hermesHome || process.env.HERMES_HOME || '',
           ...(bootstrapOptions?.profile ? { HERMES_INSTALL_PROFILE: bootstrapOptions.profile } : {}),
+          ...(bootstrapOptions?.extras ? { HERMES_INSTALL_EXTRAS: bootstrapOptions.extras } : {}),
           ...(bootstrapOptions?.useFastMirror ? { HERMES_FAST_MIRROR: '1' } : {}),
           ...(bootstrapOptions?.customMirrorUrl ? { HERMES_MIRROR_URL: bootstrapOptions.customMirrorUrl } : {}),
           ...(bootstrapOptions?.skipBrowserUse ? { HERMES_SKIP_BROWSER_USE: '1' } : {})
@@ -589,6 +591,7 @@ function spawnBash(scriptPath, args, { emit, stageName, abortSignal, hermesHome,
         ...process.env,
         HERMES_HOME: hermesHome || process.env.HERMES_HOME || '',
         ...(bootstrapOptions?.profile ? { HERMES_INSTALL_PROFILE: bootstrapOptions.profile } : {}),
+        ...(bootstrapOptions?.extras ? { HERMES_INSTALL_EXTRAS: bootstrapOptions.extras } : {}),
         ...(bootstrapOptions?.useFastMirror ? { HERMES_FAST_MIRROR: '1' } : {}),
         ...(bootstrapOptions?.customMirrorUrl ? { HERMES_MIRROR_URL: bootstrapOptions.customMirrorUrl } : {}),
         ...(bootstrapOptions?.skipBrowserUse ? { HERMES_SKIP_BROWSER_USE: '1' } : {})
@@ -812,6 +815,7 @@ async function runStage({
         '--json',
         ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit }),
         ...(bootstrapOptions?.profile ? ['--profile', bootstrapOptions.profile] : []),
+        ...(bootstrapOptions?.extras ? ['--extras', bootstrapOptions.extras] : []),
         ...(bootstrapOptions?.useFastMirror ? ['--fast-mirror'] : []),
         ...(bootstrapOptions?.customMirrorUrl ? ['--mirror-url', bootstrapOptions.customMirrorUrl] : []),
         ...(bootstrapOptions?.skipBrowserUse ? ['--skip-browser-use'] : [])
@@ -823,6 +827,7 @@ async function runStage({
         '-Json',
         ...buildPinArgs(installStamp, { pinCommit }),
         ...(bootstrapOptions?.profile ? ['-Profile', bootstrapOptions.profile] : []),
+        ...(bootstrapOptions?.extras ? ['-Extras', bootstrapOptions.extras] : []),
         ...(bootstrapOptions?.useFastMirror ? ['-FastMirror'] : []),
         ...(bootstrapOptions?.customMirrorUrl ? ['-MirrorUrl', bootstrapOptions.customMirrorUrl] : []),
         ...(bootstrapOptions?.skipBrowserUse ? ['-SkipBrowserUse'] : [])

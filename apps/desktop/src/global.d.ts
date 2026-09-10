@@ -1179,12 +1179,12 @@ export interface DesktopBootstrapSetupChoice {
 }
 
 export interface DesktopBootstrapOptions {
-  profile?: 'lean' | 'standard' | 'full'
+  profile?: 'lean' | 'standard' | 'full' | 'custom'
+  extras?: string
   useFastMirror?: boolean
   customMirrorUrl?: string
   skipBrowserUse?: boolean
 }
-
 export interface DesktopBootstrapState {
   active: boolean
   manifest: { type: 'manifest'; stages: DesktopBootstrapStageDescriptor[]; protocolVersion: number | null } | null

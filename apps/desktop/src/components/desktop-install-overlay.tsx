@@ -45,26 +45,91 @@ import { FirstRunRemoteForm } from './first-run-remote-form'
  * those stages cover (API key, model, persona, gateway autostart) is handled
  * by the existing DesktopOnboardingOverlay, NOT by the install overlay.
  */
+interface FeatureOption {
+  id: string
+  extra?: string
+  title: string
+  desc: string
+  sizeMb: number
+  recommended?: boolean
+  heavy?: boolean
+  required?: boolean
+}
+
+const FEATURES: FeatureOption[] = [
+  {
+    id: 'core',
+    title: 'Core AI Agent & Web UI',
+    desc: 'Python runtime, AI engine, local dashboard & desktop gateway.',
+    sizeMb: 35,
+    required: true
+  },
+  {
+    id: 'mcp',
+    extra: 'mcp',
+    title: 'MCP Protocol Tools',
+    desc: 'Model Context Protocol integration to connect external tools.',
+    sizeMb: 12,
+    recommended: true
+  },
+  {
+    id: 'pty',
+    extra: 'pty',
+    title: 'Terminal & Scheduler',
+    desc: 'Run shell commands and schedule cron jobs.',
+    sizeMb: 5,
+    recommended: true
+  },
+  {
+    id: 'youtube',
+    extra: 'youtube',
+    title: 'YouTube & Media Skills',
+    desc: 'Extract transcripts and summarize YouTube videos.',
+    sizeMb: 5
+  },
+  {
+    id: 'browserUse',
+    title: 'Browser Automation (browser-use)',
+    desc: 'Headless browser automation via Playwright.',
+    sizeMb: 95
+  },
+  {
+    id: 'messaging',
+    extra: 'messaging',
+    title: 'Chat Bots (Telegram / Discord / Slack)',
+    desc: 'Run Hermes as a live bot on messaging platforms.',
+    sizeMb: 25
+  },
+  {
+    id: 'google',
+    extra: 'google',
+    title: 'Google Workspace SDK (Gmail, Drive)',
+    desc: 'Downloads 600+ Google API discovery schemas. Heavy.',
+    sizeMb: 60,
+    heavy: true
+  }
+]
+
 const PROFILES = [
   {
     id: 'lean' as const,
     title: 'Lean (Fast)',
-    tag: '~50 MB · ~1 min',
-    desc: 'Core AI Agent, Web Dashboard & MCP tools. Extra skills install on-demand.',
+    tag: '~52 MB · ~45s',
+    desc: 'Core AI Agent, Web Dashboard & MCP tools.',
     badge: 'Recommended'
   },
   {
     id: 'standard' as const,
     title: 'Standard',
-    tag: '~120 MB · ~3 min',
-    desc: 'Lean + Terminal automations and YouTube tools.',
+    tag: '~57 MB · ~1 min',
+    desc: 'Lean + Terminal automations & YouTube skills.',
     badge: 'Balanced'
   },
   {
     id: 'full' as const,
     title: 'Full (All Extras)',
-    tag: '~350 MB · ~10+ min',
-    desc: 'Includes full Google Workspace SDK & all messaging extras.',
+    tag: '~237 MB · ~5+ min',
+    desc: 'Full Google Workspace SDK, Playwright & all tools.',
     badge: 'Complete'
   }
 ]
@@ -302,10 +367,75 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
   const [cancelling, setCancelling] = useState(false)
   const [remoteOpen, setRemoteOpen] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  const [selectedProfile, setSelectedProfile] = useState<'lean' | 'standard' | 'full'>('lean')
+  const [selectedProfile, setSelectedProfile] = useState<'lean' | 'standard' | 'full' | 'custom'>('lean')
+  const [checkedFeatures, setCheckedFeatures] = useState<Record<string, boolean>>({
+    core: true,
+    mcp: true,
+    pty: true,
+    youtube: false,
+    browserUse: false,
+    messaging: false,
+    google: false
+  })
+  const [showComponentList, setShowComponentList] = useState(false)
   const [useFastMirror, setUseFastMirror] = useState(true)
-  const [includeBrowserUse, setIncludeBrowserUse] = useState(false)
   const [activeTab, setActiveTab] = useState<'local' | 'remote'>('local')
+
+  const applyPreset = (preset: 'lean' | 'standard' | 'full') => {
+    setSelectedProfile(preset)
+    if (preset === 'lean') {
+      setCheckedFeatures({
+        core: true,
+        mcp: true,
+        pty: true,
+        youtube: false,
+        browserUse: false,
+        messaging: false,
+        google: false
+      })
+    } else if (preset === 'standard') {
+      setCheckedFeatures({
+        core: true,
+        mcp: true,
+        pty: true,
+        youtube: true,
+        browserUse: false,
+        messaging: false,
+        google: false
+      })
+    } else if (preset === 'full') {
+      setCheckedFeatures({
+        core: true,
+        mcp: true,
+        pty: true,
+        youtube: true,
+        browserUse: true,
+        messaging: true,
+        google: true
+      })
+    }
+  }
+
+  const toggleFeature = (id: string) => {
+    if (id === 'core') return
+    setCheckedFeatures(prev => {
+      const next = { ...prev, [id]: !prev[id] }
+      setSelectedProfile('custom')
+      return next
+    })
+  }
+
+  const totalSizeMb = useMemo(() => {
+    return FEATURES.reduce((sum, f) => (checkedFeatures[f.id] ? sum + f.sizeMb : sum), 0)
+  }, [checkedFeatures])
+
+  const estimatedTimeText = useMemo(() => {
+    const sec = Math.max(20, Math.round(totalSizeMb / (useFastMirror ? 1.5 : 0.2)))
+    if (sec < 60) return `~${sec}s`
+    const m = Math.floor(sec / 60)
+    const rs = sec % 60
+    return rs > 0 ? `~${m}m ${rs}s` : `~${m}m`
+  }, [totalSizeMb, useFastMirror])
   const logEndRef = useRef<HTMLDivElement | null>(null)
 
   // Tick once a second while a bootstrap is in flight so running steps show a
@@ -479,9 +609,9 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => setSelectedProfile(p.id)}
+                      onClick={() => applyPreset(p.id)}
                       className={cn(
-                        'flex flex-col text-left rounded-lg p-3.5 border transition cursor-pointer',
+                        'flex flex-col text-left rounded-lg p-3 border transition cursor-pointer',
                         isSelected
                           ? 'border-primary bg-primary/5 ring-1 ring-primary'
                           : 'border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) hover:border-(--ui-stroke-secondary)'
@@ -492,15 +622,87 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
                         {isSelected && <Check className="size-4 text-primary shrink-0" />}
                       </div>
                       <span className="mt-1 text-xs font-mono font-medium text-primary/80">{p.tag}</span>
-                      <p className="mt-1.5 text-xs text-muted-foreground leading-normal">{p.desc}</p>
+                      <p className="mt-1 text-xs text-muted-foreground leading-normal">{p.desc}</p>
                     </button>
                   )
                 })}
               </div>
             </div>
 
-            {/* Acceleration & Options */}
-            <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) p-4 space-y-3">
+            {/* Granular Component Selection Toggle */}
+            <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowComponentList(v => !v)}
+                className="w-full flex items-center justify-between p-3 text-xs font-medium text-muted-foreground hover:text-foreground transition select-none"
+              >
+                <div className="flex items-center gap-2">
+                  {showComponentList ? <ChevronDown className={iconSize.sm} /> : <ChevronRight className={iconSize.sm} />}
+                  <span>Customize Components & Features</span>
+                  {selectedProfile === 'custom' && (
+                    <span className="rounded bg-primary/10 text-primary px-1.5 py-0.2 text-[10px] font-semibold">
+                      Custom
+                    </span>
+                  )}
+                </div>
+                <span className="text-muted-foreground tabular-nums">
+                  {FEATURES.filter(f => checkedFeatures[f.id]).length}/{FEATURES.length} active
+                </span>
+              </button>
+
+              {showComponentList && (
+                <div className="border-t border-(--ui-stroke-tertiary) p-3 space-y-2 max-h-56 overflow-y-auto">
+                  {FEATURES.map(feat => {
+                    const isChecked = Boolean(checkedFeatures[feat.id])
+                    return (
+                      <label
+                        key={feat.id}
+                        className={cn(
+                          'flex items-start gap-3 p-2 rounded-md transition cursor-pointer select-none',
+                          feat.required && 'opacity-70 cursor-not-allowed',
+                          isChecked ? 'bg-primary/5' : 'hover:bg-(--chrome-action-hover)'
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={feat.required}
+                          checked={isChecked}
+                          onChange={() => toggleFeature(feat.id)}
+                          className="mt-0.5 rounded border-(--ui-stroke-secondary) accent-primary"
+                        />
+                        <div className="min-w-0 flex-1 text-xs">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-foreground">{feat.title}</span>
+                            {feat.required && (
+                              <span className="rounded bg-(--ui-bg-tertiary) text-muted-foreground px-1.5 py-0.2 text-[10px]">
+                                Required
+                              </span>
+                            )}
+                            {feat.recommended && (
+                              <span className="rounded bg-green-500/10 text-green-600 px-1.5 py-0.2 text-[10px] font-medium">
+                                Recommended
+                              </span>
+                            )}
+                            {feat.heavy && (
+                              <span className="rounded bg-amber-500/10 text-amber-600 px-1.5 py-0.2 text-[10px] font-medium">
+                                Heavy (600+ JSONs)
+                              </span>
+                            )}
+                            <span className="ml-auto font-mono text-muted-foreground text-[10px]">
+                              ~{feat.sizeMb} MB
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-muted-foreground leading-normal">{feat.desc}</p>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Fast Mirror Acceleration Toggle & Summary */}
+            <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) p-3.5 space-y-2.5">
               <label className="flex items-start gap-3 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -522,20 +724,10 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
                 </div>
               </label>
 
-              <label className="flex items-start gap-3 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={includeBrowserUse}
-                  onChange={e => setIncludeBrowserUse(e.target.checked)}
-                  className="mt-0.5 rounded border-(--ui-stroke-secondary) accent-primary"
-                />
-                <div className="text-xs leading-normal">
-                  <span className="font-medium text-foreground">Install Browser Automation CLI (browser-use)</span>
-                  <p className="mt-0.5 text-muted-foreground">
-                    Adds headless browser automation tools. Optional; can be installed later via `hermes tools`.
-                  </p>
-                </div>
-              </label>
+              <div className="flex items-center justify-between pt-1 border-t border-(--ui-stroke-tertiary) text-xs text-muted-foreground">
+                <span>Est. download: <strong className="text-foreground">~{totalSizeMb} MB</strong></span>
+                <span>Est. time: <strong className="text-foreground">{estimatedTimeText}</strong></span>
+              </div>
             </div>
 
             {/* Primary Action Button */}
@@ -553,10 +745,15 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
                       throw new Error(copy.localStartUnavailable)
                     }
 
+                    const extrasToInstall = FEATURES.filter(f => f.extra && checkedFeatures[f.id])
+                      .map(f => f.extra)
+                      .join(',')
+
                     await desktop.continueBootstrapLocal({
                       profile: selectedProfile,
+                      extras: extrasToInstall,
                       useFastMirror,
-                      skipBrowserUse: !includeBrowserUse
+                      skipBrowserUse: !checkedFeatures.browserUse
                     })
                   } catch (err) {
                     setLocalStart({ root: activeRoot, starting: false, error: errorMessage(err) })
